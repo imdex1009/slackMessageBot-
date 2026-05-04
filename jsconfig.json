@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "checkJs": true,
+    "typeRoots": ["./node_modules/@types"],
+    "types": ["google-apps-script"]
+  },
+  "exclude": ["node_modules"]
+}

@@ -1,0 +1,4 @@
+node_modules/
+
+# clasp 설정 (scriptId 등 민감 정보 포함 가능)
+.clasp.json
