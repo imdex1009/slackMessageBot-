@@ -96,8 +96,8 @@ function processSheet(ss, sheet, sheetName, now) {
     const sendAt   = new Date(datetime);
     const expireAt = new Date(sendAt.getTime() + CONFIG.EXPIRE_MINUTES * 60 * 1000);
 
-    // ④ 아직 발송 시간 미도래 → 스킵
-    if (now < sendAt) return;
+    // ④ 발송 시각 1분 초과로 남았으면 스킵, 1분 이내면 즉시 발송 진행
+    if (sendAt.getTime() - now.getTime() > 60 * 1000) return;
 
     // ⑤ 발송 기한 만료 처리
     if (now > expireAt) {
