@@ -9,7 +9,8 @@ const CONFIG = {
     '발송목록',
   ],
 
-  LOG_SHEET_NAME: '발송로그',  // 통합 로그 시트 탭 이름 (자동 생성)
+  LOG_SHEET_NAME:    '발송로그',      // 통합 로그 시트 탭 이름 (자동 생성)
+  ALERT_CHANNEL:     'C0XXXXXXXXX',   // 일시 오류 알럿을 받을 슬랙 채널 ID
 
   // 컬럼 위치 (모든 시트 동일 구조)
   COL_CHANNEL:  1,   // A열: 발송 채널 ID (ex. C0XXXXXXXXX)
@@ -18,10 +19,11 @@ const CONFIG = {
   COL_STATUS:   4,   // D열: 발송완료여부 (자동 기재)
   COL_MENTION:  5,   // E열: 멘션 대상 (User ID / Group ID / @here 등)
 
-  DONE_LABEL:       '✅ 발송완료',
-  FAIL_LABEL:       '❌ 발송실패',
-  EXPIRE_LABEL:     '⏰ 발송기한 만료',
-  NO_CHANNEL_LABEL: '⚠️ 채널 ID 누락',
+  DONE_LABEL:         '✅ 발송완료',
+  FAIL_LABEL:         '❌ 발송실패',
+  EXPIRE_LABEL:       '⏰ 발송기한 만료',
+  NO_CHANNEL_LABEL:   '⚠️ 채널 ID 누락',
+  INVALID_DATE_LABEL: '🚫 일시 형식 오류',
 
   RETRY_COUNT:    3,    // 실패 시 최대 재시도 횟수
   RETRY_DELAY:    1000, // 재시도 간격 (밀리초)
@@ -70,10 +72,26 @@ function processSheet(ss, sheet, sheetName, now) {
     if (String(status).includes('발송완료')    ||
         String(status).includes('발송실패')    ||
         String(status).includes('발송기한 만료') ||
-        String(status).includes('채널 ID 누락')) return;
+        String(status).includes('채널 ID 누락') ||
+        String(status).includes('일시 형식 오류')) return;
 
     // ② 필수값 누락 스킵
     if (!datetime || !message) return;
+
+    // ② - 발송 일시 유효성 검사
+    const dateError = validateDatetime(datetime);
+    if (dateError) {
+      sheet.getRange(rowNum, CONFIG.COL_STATUS).setValue(CONFIG.INVALID_DATE_LABEL);
+      const alertMsg =
+        `🚫 *발송 일시 형식 오류 감지*\n` +
+        `• 시트: ${sheetName}  ${rowNum}행\n` +
+        `• 입력값: \`${datetime}\`\n` +
+        `• 오류: ${dateError}\n` +
+        `• 메시지: ${String(message).substring(0, 40)}`;
+      sendSlackAlert(alertMsg);
+      Logger.log(`  [${rowNum}행] 🚫 일시 형식 오류 → ${dateError}`);
+      return;
+    }
 
     // ③ 채널 ID 누락 처리
     if (!channelId) {
@@ -199,6 +217,45 @@ function sendSlackMessage(message, channelId) {
   } catch (e) {
     return { success: false, error: e.message };
   }
+}
+
+// =============================================
+// 🔍 발송 일시 유효성 검사
+// - GAS가 Date로 파싱하지 못한 값(문자열)이나 NaN 날짜를 감지
+// =============================================
+function validateDatetime(datetime) {
+  // GAS가 Date로 파싱한 경우
+  if (datetime instanceof Date) {
+    if (isNaN(datetime.getTime())) return '날짜를 인식할 수 없는 값';
+    return null; // 정상
+  }
+
+  // 문자열로 저장된 경우 (GAS가 날짜로 인식 실패 → 25시, 존재하지 않는 날짜 등)
+  if (typeof datetime === 'string') {
+    const parsed = new Date(datetime);
+    if (isNaN(parsed.getTime())) return `날짜 형식 오류 ("${datetime}")`;
+
+    // 시간 범위 체크 (HH:mm 패턴이 포함된 경우)
+    const timeMatch = datetime.match(/(\d{1,2}):(\d{2})/);
+    if (timeMatch) {
+      const hour = parseInt(timeMatch[1], 10);
+      if (hour >= 24) return `존재하지 않는 시간 (${hour}시)`;
+    }
+    return null; // 파싱 성공
+  }
+
+  return null;
+}
+
+// =============================================
+// 🚨 슬랙 알럿 발송 (ALERT_CHANNEL로 전송)
+// =============================================
+function sendSlackAlert(message) {
+  if (!CONFIG.ALERT_CHANNEL || CONFIG.ALERT_CHANNEL === 'C0XXXXXXXXX') {
+    Logger.log(`⚠️ ALERT_CHANNEL 미설정 - 알럿 미발송: ${message}`);
+    return;
+  }
+  sendSlackMessage(message, CONFIG.ALERT_CHANNEL);
 }
 
 // =============================================
